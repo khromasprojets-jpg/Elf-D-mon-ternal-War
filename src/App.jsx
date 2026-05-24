@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 
 // ─── CONFIG SUPABASE ──────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://fgzulqopyxtfmtlfctxx.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_PU9sf0pSZA6d0eqZDs8Xgg_gNp2LsSQ";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnenVscW9weXh0Zm10bGZjdHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1NDg1OTYsImV4cCI6MjA5NTEyNDU5Nn0._AWvAASPbCYS8pzyIP8CR2SfNcXiwOX5x7t7NCwUjqQ";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ─── DONNÉES DU JEU ───────────────────────────────────────────────────────────
