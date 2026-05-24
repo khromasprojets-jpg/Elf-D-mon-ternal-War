@@ -1,11 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-// ─── CONFIG SUPABASE ──────────────────────────────────────────────────────────
-const SUPABASE_URL = "https://fgzulqopyxtfmtlfctxx.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnenVscW9weXh0Zm10bGZjdHh4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTU0ODU5NiwiZXhwIjoyMDk1MTI0NTk2fQ.BktjHUD8h7qQbgsijevHrym5ogO5nmtaEBuosGPiRyE";
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
 // ─── DONNÉES DU JEU ───────────────────────────────────────────────────────────
 const CLASSES = [
   { id: 1, nom: "Guerrier", emoji: "⚔️", couleur: "#e74c3c", desc: "Maître du combat rapproché", stats: { force: 20, armure: 18, vitalité: 22, critique: 8 } },
@@ -128,17 +123,24 @@ function PageConnexion({ onConnecte }) {
 
 // ─── CHOIX PERSONNAGE ─────────────────────────────────────────────────────────
 // Images de personnages fantasy (libres de droits via picsum / placeholder artistique)
-const CLASSE_IMAGES = {
-  1: "https://images.unsplash.com/photo-1608889175123-8ee362201f81?w=400&h=600&fit=crop&q=80", // Guerrier
-  2: "https://images.unsplash.com/photo-1618336753974-aae8e04506aa?w=400&h=600&fit=crop&q=80", // Mage
-  3: "https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=400&h=600&fit=crop&q=80", // Archer
-};
+// 6 personnages : Guerrier M/F, Mage M/F, Archer M/F
+const PERSONNAGES_6 = [
+  { classeId: 1, genre: "M", surnom: "GUERRIER", img: "https://cdn.pixabay.com/photo/2022/03/01/02/29/warrior-7040066_1280.jpg" },
+  { classeId: 1, genre: "F", surnom: "GUERRIÈRE", img: "https://cdn.pixabay.com/photo/2021/11/07/07/16/female-warrior-6776776_1280.jpg" },
+  { classeId: 2, genre: "M", surnom: "MAGE", img: "https://cdn.pixabay.com/photo/2021/12/26/19/17/wizard-6895529_1280.jpg" },
+  { classeId: 2, genre: "F", surnom: "MAGICIENNE", img: "https://cdn.pixabay.com/photo/2023/01/15/16/44/ai-generated-7720891_1280.jpg" },
+  { classeId: 3, genre: "M", surnom: "ARCHER", img: "https://cdn.pixabay.com/photo/2022/09/27/19/03/ai-generated-7483796_1280.jpg" },
+  { classeId: 3, genre: "F", surnom: "ARCHÈRE", img: "https://cdn.pixabay.com/photo/2023/02/19/10/59/ai-generated-7799606_1280.jpg" },
+];
 
 function PageChoixPersonnage({ compte, onPersonnage }) {
-  const [cls, setCls] = useState(null);
+  const [persoChoisi, setPersoChoisi] = useState(null); // un des 6 personnages
   const [nom, setNom] = useState("");
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState("");
+
+  // La classe réelle est déduite du personnage choisi
+  const cls = persoChoisi ? CLASSES.find(c => c.id === persoChoisi.classeId) : null;
 
   const creer = async () => {
     if (!cls || !nom.trim()) return;
@@ -147,7 +149,7 @@ function PageChoixPersonnage({ compte, onPersonnage }) {
     if (exist) { setErreur("Ce nom de héros est déjà pris."); setChargement(false); return; }
     const { data, error } = await supabase.from("personnages").insert({
       compte_id: compte.id, nom: nom.trim(),
-      classe_id: cls.id, classe_nom: cls.nom, classe_emoji: cls.emoji,
+      classe_id: cls.id, classe_nom: persoChoisi.surnom, classe_emoji: cls.emoji,
       niveau: 1, xp: 0, xp_max: 1000, hp: 1000, hp_max: 1000,
       mp: 500, mp_max: 500, or_joueur: 5000, yuanbao: 100, puissance: 5000, vip: 0, guilde: "",
     }).select().single();
@@ -173,73 +175,57 @@ function PageChoixPersonnage({ compte, onPersonnage }) {
         <p style={{ color: "#8892b0", fontSize: 13, margin: 0 }}>Votre destin commence ici — <strong style={{ color: "#64ffda" }}>{compte.identifiant}</strong></p>
       </div>
 
-      {/* Cartes de personnages style MMORPG */}
-      <div style={{ display: "flex", gap: 0, marginBottom: 40, justifyContent: "center", position: "relative", zIndex: 1 }}>
-        {CLASSES.map((c, idx) => {
-          const selected = cls?.id === c.id;
+      {/* 6 cartes de personnages style MMORPG */}
+      <div style={{ display: "flex", gap: 0, marginBottom: 36, justifyContent: "center", position: "relative", zIndex: 1 }}>
+        {PERSONNAGES_6.map((p, idx) => {
+          const selected = persoChoisi === p;
+          const couleur = CLASSES.find(c => c.id === p.classeId)?.couleur || "#f39c12";
+          const stats = CLASSES.find(c => c.id === p.classeId)?.stats || {};
           return (
-            <div key={c.id} onClick={() => setCls(c)}
+            <div key={idx} onClick={() => setPersoChoisi(p)}
               style={{
-                width: 220, height: 520, cursor: "pointer", position: "relative", overflow: "hidden",
-                borderLeft: idx === 0 ? `2px solid ${selected ? c.couleur : "#21262d"}` : "none",
-                borderRight: `2px solid ${selected ? c.couleur : "#21262d"}`,
-                borderTop: `2px solid ${selected ? c.couleur : "#21262d"}`,
-                borderBottom: `2px solid ${selected ? c.couleur : "#21262d"}`,
+                width: 170, height: 500, cursor: "pointer", position: "relative", overflow: "hidden",
+                border: `2px solid ${selected ? couleur : "#21262d"}`,
+                marginLeft: idx === 0 ? 0 : -2,
                 transition: "all 0.3s ease",
-                transform: selected ? "translateY(-12px) scale(1.03)" : "translateY(0) scale(1)",
-                zIndex: selected ? 10 : 1,
-                boxShadow: selected ? `0 0 40px ${c.couleur}66, 0 20px 60px #000` : "0 10px 30px #000a",
+                transform: selected ? "translateY(-14px) scale(1.04)" : "translateY(0) scale(1)",
+                zIndex: selected ? 10 : idx,
+                boxShadow: selected ? `0 0 50px ${couleur}88, 0 24px 60px #000` : "0 8px 24px #000a",
               }}>
-              {/* Image de fond */}
+              {/* Fond image */}
               <div style={{
                 position: "absolute", inset: 0,
-                background: `linear-gradient(to bottom, transparent 30%, ${c.couleur}44 70%, ${c.couleur}cc 100%)`,
-                zIndex: 2,
-              }} />
-              <div style={{
-                position: "absolute", inset: 0,
-                backgroundImage: `url(${CLASSE_IMAGES[c.id]})`,
+                backgroundImage: `url(${p.img})`,
                 backgroundSize: "cover", backgroundPosition: "top center",
-                filter: selected ? "none" : "grayscale(60%) brightness(0.7)",
-                transition: "filter 0.3s",
+                filter: selected ? "brightness(1.1)" : "grayscale(50%) brightness(0.65)",
+                transition: "filter 0.4s",
               }} />
-
-              {/* Overlay gradient haut */}
-              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 80, background: "linear-gradient(to bottom, #000a, transparent)", zIndex: 3 }} />
-
+              {/* Gradients */}
+              <div style={{ position: "absolute", inset: 0, background: `linear-gradient(to bottom, #000a 0%, transparent 35%, ${couleur}33 70%, ${couleur}dd 100%)`, zIndex: 2 }} />
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 60, background: "linear-gradient(to bottom, #000c, transparent)", zIndex: 3 }} />
+              {/* Bordure lumineuse si sélectionné */}
+              {selected && <div style={{ position: "absolute", inset: 0, border: `2px solid ${couleur}`, boxShadow: `inset 0 0 30px ${couleur}44`, zIndex: 5, pointerEvents: "none" }} />}
+              {/* Badge genre */}
+              <div style={{ position: "absolute", top: 10, right: 10, zIndex: 6, background: "#000a", border: `1px solid ${couleur}88`, padding: "2px 7px", borderRadius: 4 }}>
+                <span style={{ color: couleur, fontSize: 10, fontWeight: 700 }}>{p.genre === "M" ? "♂" : "♀"}</span>
+              </div>
               {/* Contenu bas */}
-              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "20px 16px", zIndex: 4 }}>
-                {/* Nom de classe */}
-                <h2 style={{
-                  color: selected ? c.couleur : "#e6edf3",
-                  fontSize: 22, fontWeight: 900, margin: "0 0 4px",
-                  textAlign: "center", letterSpacing: 3, textTransform: "uppercase",
-                  textShadow: selected ? `0 0 20px ${c.couleur}` : "0 2px 4px #000",
-                  transition: "all 0.3s",
-                }}>{c.nom}</h2>
-                <p style={{ color: "#ccc", fontSize: 11, textAlign: "center", margin: "0 0 14px", letterSpacing: 1 }}>{c.desc}</p>
-
-                {/* Stats */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {Object.entries(c.stats).map(([s, v]) => (
-                    <div key={s} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ color: "#aaa", fontSize: 10, width: 52, textTransform: "capitalize" }}>{s}</span>
-                      <div style={{ flex: 1, background: "#ffffff22", borderRadius: 2, height: 4, overflow: "hidden" }}>
-                        <div style={{
-                          width: selected ? `${v * 4}%` : "0%",
-                          height: "100%", background: c.couleur,
-                          transition: "width 0.6s ease", borderRadius: 2,
-                          boxShadow: `0 0 6px ${c.couleur}`,
-                        }} />
+              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "14px 12px", zIndex: 4 }}>
+                <h2 style={{ color: selected ? couleur : "#e6edf3", fontSize: 15, fontWeight: 900, margin: "0 0 8px", textAlign: "center", letterSpacing: 2, textTransform: "uppercase", textShadow: selected ? `0 0 15px ${couleur}` : "0 2px 4px #000", transition: "all 0.3s" }}>{p.surnom}</h2>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {Object.entries(stats).map(([s, v]) => (
+                    <div key={s} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ color: "#bbb", fontSize: 9, width: 46, textTransform: "capitalize" }}>{s}</span>
+                      <div style={{ flex: 1, background: "#ffffff18", borderRadius: 2, height: 3, overflow: "hidden" }}>
+                        <div style={{ width: selected ? `${v * 4}%` : "20%", height: "100%", background: couleur, transition: "width 0.7s ease", boxShadow: `0 0 5px ${couleur}` }} />
                       </div>
-                      <span style={{ color: "#e6edf3", fontSize: 10, width: 16, textAlign: "right" }}>{v}</span>
+                      <span style={{ color: "#e6edf3", fontSize: 9, width: 14, textAlign: "right" }}>{v}</span>
                     </div>
                   ))}
                 </div>
-
                 {selected && (
-                  <div style={{ marginTop: 12, padding: "6px", background: c.couleur + "33", borderRadius: 6, border: `1px solid ${c.couleur}55`, textAlign: "center" }}>
-                    <span style={{ color: c.couleur, fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>✦ SÉLECTIONNÉ ✦</span>
+                  <div style={{ marginTop: 10, padding: "5px", background: couleur + "33", border: `1px solid ${couleur}55`, textAlign: "center" }}>
+                    <span style={{ color: couleur, fontSize: 10, fontWeight: 700, letterSpacing: 1 }}>✦ CHOISI ✦</span>
                   </div>
                 )}
               </div>
