@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-
 // ─── CONFIG SUPABASE ──────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://fgzulqopyxtfmtlfctxx.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnenVscW9weXh0Zm10bGZjdHh4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTU0ODU5NiwiZXhwIjoyMDk1MTI0NTk2fQ.BktjHUD8h7qQbgsijevHrym5ogO5nmtaEBuosGPiRyE";
+const SUPABASE_ANON_KEY = "sb_publishable_PU9sf0pSZA6d0eqZDs8Xgg_gNp2LsSQ";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ─── DONNÉES DU JEU ───────────────────────────────────────────────────────────
@@ -128,6 +127,13 @@ function PageConnexion({ onConnecte }) {
 }
 
 // ─── CHOIX PERSONNAGE ─────────────────────────────────────────────────────────
+// Images de personnages fantasy (libres de droits via picsum / placeholder artistique)
+const CLASSE_IMAGES = {
+  1: "https://images.unsplash.com/photo-1608889175123-8ee362201f81?w=400&h=600&fit=crop&q=80", // Guerrier
+  2: "https://images.unsplash.com/photo-1618336753974-aae8e04506aa?w=400&h=600&fit=crop&q=80", // Mage
+  3: "https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=400&h=600&fit=crop&q=80", // Archer
+};
+
 function PageChoixPersonnage({ compte, onPersonnage }) {
   const [cls, setCls] = useState(null);
   const [nom, setNom] = useState("");
@@ -150,36 +156,129 @@ function PageChoixPersonnage({ compte, onPersonnage }) {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#060612", display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 24px", fontFamily: "Georgia, serif" }}>
-      <h1 style={{ color: "#f39c12", fontSize: 32, marginBottom: 6 }}>⚔️ Choisissez votre Classe</h1>
-      <p style={{ color: "#8892b0", marginBottom: 36, fontSize: 14 }}>Compte : <strong style={{ color: "#64ffda" }}>{compte.identifiant}</strong></p>
-      <div style={{ display: "flex", gap: 20, marginBottom: 40, flexWrap: "wrap", justifyContent: "center" }}>
-        {CLASSES.map(c => (
-          <div key={c.id} onClick={() => setCls(c)} style={{ width: 220, padding: 24, borderRadius: 16, cursor: "pointer", background: cls?.id === c.id ? c.couleur + "1a" : "#161b22", border: `2px solid ${cls?.id === c.id ? c.couleur : "#21262d"}`, transition: "all 0.25s", transform: cls?.id === c.id ? "translateY(-5px)" : "none" }}>
-            <div style={{ fontSize: 54, textAlign: "center", marginBottom: 12 }}>{c.emoji}</div>
-            <h3 style={{ color: c.couleur, textAlign: "center", margin: "0 0 6px", fontSize: 18 }}>{c.nom}</h3>
-            <p style={{ color: "#8892b0", textAlign: "center", fontSize: 12, margin: "0 0 16px" }}>{c.desc}</p>
-            {Object.entries(c.stats).map(([s, v]) => (
-              <div key={s} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-                <span style={{ color: "#8892b0", fontSize: 11, width: 55, textTransform: "capitalize" }}>{s}</span>
-                <div style={{ flex: 1, background: "#0d1117", borderRadius: 3, height: 5, overflow: "hidden" }}>
-                  <div style={{ width: `${v * 4}%`, height: "100%", background: c.couleur }} />
-                </div>
-                <span style={{ color: "#e6edf3", fontSize: 11, width: 18 }}>{v}</span>
-              </div>
-            ))}
-          </div>
-        ))}
+    <div style={{
+      minHeight: "100vh",
+      background: "radial-gradient(ellipse at center, #0a0515 0%, #000 100%)",
+      display: "flex", flexDirection: "column", alignItems: "center",
+      justifyContent: "center", fontFamily: "Georgia, serif",
+      position: "relative", overflow: "hidden",
+    }}>
+      {/* Particules de fond */}
+      <div style={{ position: "absolute", inset: 0, background: "url(\"data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23f39c12' fill-opacity='0.03'%3E%3Ccircle cx='30' cy='30' r='1'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")", pointerEvents: "none" }} />
+
+      <div style={{ position: "relative", zIndex: 1, textAlign: "center", marginBottom: 32 }}>
+        <h1 style={{ fontSize: 36, fontWeight: 700, color: "#f39c12", margin: "0 0 8px", letterSpacing: 4, textShadow: "0 0 40px #f39c1266", textTransform: "uppercase" }}>
+          Choisissez votre Classe
+        </h1>
+        <p style={{ color: "#8892b0", fontSize: 13, margin: 0 }}>Votre destin commence ici — <strong style={{ color: "#64ffda" }}>{compte.identifiant}</strong></p>
       </div>
-      {cls && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
-          <input value={nom} onChange={e => setNom(e.target.value)} placeholder="Nom de votre héros..." style={{ padding: "13px 22px", borderRadius: 10, border: `2px solid ${cls.couleur}55`, background: "#161b22", color: "#e6edf3", fontSize: 16, outline: "none", width: 290, textAlign: "center" }} />
-          {erreur && <p style={{ color: "#ff6b6b", fontSize: 13 }}>{erreur}</p>}
-          <button onClick={creer} disabled={!nom.trim() || chargement} style={{ padding: "13px 32px", borderRadius: 10, border: "none", cursor: nom.trim() && !chargement ? "pointer" : "not-allowed", background: nom.trim() ? `linear-gradient(135deg, ${cls.couleur}, ${cls.couleur}bb)` : "#21262d", color: "#fff", fontSize: 15, fontWeight: 700 }}>
-            {chargement ? "⏳ Création..." : "🌟 Commencer l'Aventure"}
-          </button>
+
+      {/* Cartes de personnages style MMORPG */}
+      <div style={{ display: "flex", gap: 0, marginBottom: 40, justifyContent: "center", position: "relative", zIndex: 1 }}>
+        {CLASSES.map((c, idx) => {
+          const selected = cls?.id === c.id;
+          return (
+            <div key={c.id} onClick={() => setCls(c)}
+              style={{
+                width: 220, height: 520, cursor: "pointer", position: "relative", overflow: "hidden",
+                borderLeft: idx === 0 ? `2px solid ${selected ? c.couleur : "#21262d"}` : "none",
+                borderRight: `2px solid ${selected ? c.couleur : "#21262d"}`,
+                borderTop: `2px solid ${selected ? c.couleur : "#21262d"}`,
+                borderBottom: `2px solid ${selected ? c.couleur : "#21262d"}`,
+                transition: "all 0.3s ease",
+                transform: selected ? "translateY(-12px) scale(1.03)" : "translateY(0) scale(1)",
+                zIndex: selected ? 10 : 1,
+                boxShadow: selected ? `0 0 40px ${c.couleur}66, 0 20px 60px #000` : "0 10px 30px #000a",
+              }}>
+              {/* Image de fond */}
+              <div style={{
+                position: "absolute", inset: 0,
+                background: `linear-gradient(to bottom, transparent 30%, ${c.couleur}44 70%, ${c.couleur}cc 100%)`,
+                zIndex: 2,
+              }} />
+              <div style={{
+                position: "absolute", inset: 0,
+                backgroundImage: `url(${CLASSE_IMAGES[c.id]})`,
+                backgroundSize: "cover", backgroundPosition: "top center",
+                filter: selected ? "none" : "grayscale(60%) brightness(0.7)",
+                transition: "filter 0.3s",
+              }} />
+
+              {/* Overlay gradient haut */}
+              <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 80, background: "linear-gradient(to bottom, #000a, transparent)", zIndex: 3 }} />
+
+              {/* Contenu bas */}
+              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "20px 16px", zIndex: 4 }}>
+                {/* Nom de classe */}
+                <h2 style={{
+                  color: selected ? c.couleur : "#e6edf3",
+                  fontSize: 22, fontWeight: 900, margin: "0 0 4px",
+                  textAlign: "center", letterSpacing: 3, textTransform: "uppercase",
+                  textShadow: selected ? `0 0 20px ${c.couleur}` : "0 2px 4px #000",
+                  transition: "all 0.3s",
+                }}>{c.nom}</h2>
+                <p style={{ color: "#ccc", fontSize: 11, textAlign: "center", margin: "0 0 14px", letterSpacing: 1 }}>{c.desc}</p>
+
+                {/* Stats */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {Object.entries(c.stats).map(([s, v]) => (
+                    <div key={s} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ color: "#aaa", fontSize: 10, width: 52, textTransform: "capitalize" }}>{s}</span>
+                      <div style={{ flex: 1, background: "#ffffff22", borderRadius: 2, height: 4, overflow: "hidden" }}>
+                        <div style={{
+                          width: selected ? `${v * 4}%` : "0%",
+                          height: "100%", background: c.couleur,
+                          transition: "width 0.6s ease", borderRadius: 2,
+                          boxShadow: `0 0 6px ${c.couleur}`,
+                        }} />
+                      </div>
+                      <span style={{ color: "#e6edf3", fontSize: 10, width: 16, textAlign: "right" }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {selected && (
+                  <div style={{ marginTop: 12, padding: "6px", background: c.couleur + "33", borderRadius: 6, border: `1px solid ${c.couleur}55`, textAlign: "center" }}>
+                    <span style={{ color: c.couleur, fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>✦ SÉLECTIONNÉ ✦</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Formulaire de nom */}
+      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
+        <div style={{ position: "relative" }}>
+          <input value={nom} onChange={e => setNom(e.target.value)}
+            placeholder="Entrez le nom de votre héros..."
+            onKeyDown={e => e.key === "Enter" && creer()}
+            style={{
+              padding: "14px 24px", borderRadius: 0, width: 340,
+              border: `1px solid ${cls ? cls.couleur + "88" : "#30363d"}`,
+              borderBottom: `2px solid ${cls ? cls.couleur : "#30363d"}`,
+              background: "#0a0a1a", color: "#e6edf3", fontSize: 15, outline: "none",
+              textAlign: "center", letterSpacing: 2, textTransform: "uppercase",
+              transition: "border-color 0.3s",
+            }} />
         </div>
-      )}
+        {erreur && <p style={{ color: "#ff6b6b", fontSize: 13, margin: 0 }}>{erreur}</p>}
+        <button onClick={creer} disabled={!cls || !nom.trim() || chargement}
+          style={{
+            padding: "14px 48px", borderRadius: 0, border: "none",
+            cursor: cls && nom.trim() && !chargement ? "pointer" : "not-allowed",
+            background: cls && nom.trim()
+              ? `linear-gradient(135deg, ${cls.couleur}, ${cls.couleur}99)`
+              : "#21262d",
+            color: cls && nom.trim() ? "#000" : "#8892b0",
+            fontSize: 14, fontWeight: 900, letterSpacing: 3, textTransform: "uppercase",
+            transition: "all 0.2s",
+            boxShadow: cls && nom.trim() ? `0 0 20px ${cls?.couleur}44` : "none",
+          }}>
+          {chargement ? "CRÉATION..." : "⚔ COMMENCER L'AVENTURE"}
+        </button>
+      </div>
     </div>
   );
 }
