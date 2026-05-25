@@ -217,17 +217,6 @@ function PageChoixPersonnage({ compte, onPersonnage }) {
               {/* Contenu bas */}
               <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "14px 12px", zIndex: 4 }}>
                 <h2 style={{ color: selected ? couleur : "#e6edf3", fontSize: 15, fontWeight: 900, margin: "0 0 8px", textAlign: "center", letterSpacing: 2, textTransform: "uppercase", textShadow: selected ? `0 0 15px ${couleur}` : "0 2px 4px #000", transition: "all 0.3s" }}>{p.surnom}</h2>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  {Object.entries(stats).map(([s, v]) => (
-                    <div key={s} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <span style={{ color: "#bbb", fontSize: 9, width: 46, textTransform: "capitalize" }}>{s}</span>
-                      <div style={{ flex: 1, background: "#ffffff18", borderRadius: 2, height: 3, overflow: "hidden" }}>
-                        <div style={{ width: selected ? `${v * 4}%` : "20%", height: "100%", background: couleur, transition: "width 0.7s ease", boxShadow: `0 0 5px ${couleur}` }} />
-                      </div>
-                      <span style={{ color: "#e6edf3", fontSize: 9, width: 14, textAlign: "right" }}>{v}</span>
-                    </div>
-                  ))}
-                </div>
                 {selected && (
                   <div style={{ marginTop: 10, padding: "5px", background: couleur + "33", border: `1px solid ${couleur}55`, textAlign: "center" }}>
                     <span style={{ color: couleur, fontSize: 10, fontWeight: 700, letterSpacing: 1 }}>✦ CHOISI ✦</span>
