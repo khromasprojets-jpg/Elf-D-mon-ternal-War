@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 
 // ─── CONFIG SUPABASE ──────────────────────────────────────────────────────────
 const SUPABASE_URL = "https://fgzulqopyxtfmtlfctxx.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnenVscW9weXh0Zm10bGZjdHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1NDg1OTYsImV4cCI6MjA5NTEyNDU5Nn0._AWvAASPbCYS8pzyIP8CR2SfNcXiwOX5x7t7NCwUjqQ";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnenVscW9weXh0Zm10bGZjdHh4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTU0ODU5NiwiZXhwIjoyMDk1MTI0NTk2fQ.BktjHUD8h7qQbgsijevHrym5ogO5nmtaEBuosGPiRyE";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // ─── DONNÉES DU JEU ───────────────────────────────────────────────────────────
