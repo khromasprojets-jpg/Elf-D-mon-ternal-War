@@ -20,7 +20,8 @@ const { createClient } = require('@supabase/supabase-js');
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const PORT       = parseInt(process.env.GAME_PORT   || '8888');
 const SUPA_URL   = process.env.SUPABASE_URL         || 'https://fgzulqopyxtfmtlfctxx.supabase.co';
-const SUPA_KEY   = process.env.SUPABASE_KEY         || 'VOTRE_SERVICE_ROLE_KEY';
+const SUPA_KEY   = process.env.SUPABASE_KEY         || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnenVscW9weXh0Zm10bGZjdHh4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTU0ODU5NiwiZXhwIjoyMDk1MTI0NTk2fQ.BktjHUD8h7qQbgsijevHrym5ogO5nmtaEBuosGPiRyE
+';
 const supabase   = createClient(SUPA_URL, SUPA_KEY);
 
 const OPCODES = {
@@ -2882,4 +2883,30 @@ server.listen(PORT, '0.0.0.0', () => {
   `);
 });
 
-module.exports = { server, players, OPCODES, DEST };
+
+// ─── SERVEUR HTTP (health check pour Render) ─────────────────────────────────
+const http = require('http');
+const HTTP_PORT = parseInt(process.env.PORT || '10000');
+
+const httpServer = http.createServer((req, res) => {
+  if (req.url === '/health' || req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'online',
+      name: 'Elf&Démon : Éternal War — Game Server',
+      players: players.size,
+      uptime: process.uptime(),
+      port: PORT,
+      opcodes: 1833,
+    }));
+  } else {
+    res.writeHead(404);
+    res.end('Not found');
+  }
+});
+
+httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
+  console.log(`[HTTP] Health check sur port ${HTTP_PORT}`);
+});
+
+module.exports = { server, httpServer, players, OPCODES, DEST };
