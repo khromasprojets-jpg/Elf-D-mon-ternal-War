@@ -2820,82 +2820,75 @@ function calcPvP(attacker, defender) {
   };
 }
 
-// ─── SERVEUR TCP ──────────────────────────────────────────────────────────────
-const server = net.createServer(socket => {
-  const id     = nextId++;
-  const player = { id, socket, accountId: null, perso: null, sceneId: null, x: 0, y: 0, buffer: Buffer.alloc(0) };
-  players.set(id, player);
-  console.log(`[+] Joueur #${id} connecté — ${socket.remoteAddress}:${socket.remotePort}`);
+// ─── UTILITAIRE : déconnexion propre d'un joueur ─────────────────────────────
+function disconnectPlayer(id, player) {
+  console.log(`[-] Joueur #${id} déconnecté (${player.perso?.nom || '?'})`);
+  if (player.sceneId) {
+    const set = scenes.get(player.sceneId);
+    if (set) set.delete(id);
+    broadcastScene(player.sceneId, DEST.SCENE, OPCODES.SceneCmd.PUSH_LEFT_SENCE, { playerId: id });
+  }
+  players.delete(id);
+}
 
-  // Envoyer CONNECT_OK immédiatement
+// ─── UTILITAIRE : traitement d'un chunk de données (TCP ou WS binary) ────────
+function processChunk(player, chunk) {
+  player.buffer = Buffer.concat([player.buffer, chunk]);
+  let pkt;
+  while ((pkt = parsePacket(player.buffer)) !== null) {
+    player.buffer = player.buffer.slice(pkt.consumed);
+    const parsed = parsePayload(pkt.payload);
+    if (parsed) {
+      routePacket(player, parsed.dest, parsed.cmd, parsed.data);
+    } else {
+      // Fallback JSON brut (utilisé par le frontend WebSocket)
+      try {
+        const json = JSON.parse(pkt.payload.toString('utf8').replace(/\0/g,'').trim());
+        if (json.dest !== undefined && json.cmd !== undefined) {
+          routePacket(player, json.dest, json.cmd, json.data || {});
+        }
+      } catch(e) { /* paquet non reconnu */ }
+    }
+  }
+}
+
+// ─── SERVEUR TCP (clients Flash natifs) ──────────────────────────────────────
+const tcpServer = net.createServer(socket => {
+  const id     = nextId++;
+  const player = { id, socket, accountId: null, perso: null, sceneId: null, x: 0, y: 0, buffer: Buffer.alloc(0), transport: 'tcp' };
+  players.set(id, player);
+  console.log(`[TCP+] Joueur #${id} — ${socket.remoteAddress}:${socket.remotePort}`);
+
   sendTo(player, DEST.USER_INFO, OPCODES.UserInfoCmd.CONNECT_OK, { serverTime: Date.now() });
 
-  socket.on('data', chunk => {
-    player.buffer = Buffer.concat([player.buffer, chunk]);
-    let pkt;
-    while ((pkt = parsePacket(player.buffer)) !== null) {
-      player.buffer = player.buffer.slice(pkt.consumed);
-      const parsed = parsePayload(pkt.payload);
-      if (parsed) {
-        routePacket(player, parsed.dest, parsed.cmd, parsed.data);
-      } else {
-        // Fallback: essayer de parser comme JSON brut
-        try {
-          const json = JSON.parse(pkt.payload.toString('utf8').replace(/\0/g,'').trim());
-          if (json.dest !== undefined && json.cmd !== undefined) {
-            routePacket(player, json.dest, json.cmd, json.data || {});
-          }
-        } catch(e) { /* paquet non reconnu */ }
-      }
-    }
-  });
-
-  socket.on('close', () => {
-    console.log(`[-] Joueur #${id} déconnecté (${player.perso?.nom || '?'})`);
-    if (player.sceneId) {
-      const set = scenes.get(player.sceneId);
-      if (set) set.delete(id);
-      broadcastScene(player.sceneId, DEST.SCENE, OPCODES.SceneCmd.PUSH_LEFT_SENCE, { playerId: id });
-    }
-    players.delete(id);
-  });
-
-  socket.on('error', err => {
-    if (err.code !== 'ECONNRESET') console.error(`[SOCK ERR] #${id}: ${err.message}`);
-  });
+  socket.on('data',  chunk => processChunk(player, chunk));
+  socket.on('close', ()    => disconnectPlayer(id, player));
+  socket.on('error', err   => { if (err.code !== 'ECONNRESET') console.error(`[TCP ERR] #${id}: ${err.message}`); });
 });
 
-server.on('error', err => console.error('[SERVER ERR]', err.message));
+tcpServer.on('error', err => console.error('[TCP SERVER ERR]', err.message));
+tcpServer.listen(PORT, '0.0.0.0', () => console.log(`[TCP] Écoute sur port ${PORT}`));
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`
-╔══════════════════════════════════════════════════╗
-║     Elf&Démon : Éternal War — Game Server       ║
-║                                                  ║
-║  Écoute sur : 0.0.0.0:${PORT}                      ║
-║  Protocole  : TCP (my9yu/DragonPals)             ║
-║  Opcodes    : 1833 (148 classes AS3)             ║
-║  Handlers   : UserInfo, Chat, Scene, Fuben,      ║
-║               Arena, Fight, Tower, Mall, Guild,  ║
-║               Task, Equip, Item, Friend, Email   ║
-╚══════════════════════════════════════════════════╝
-  `);
-});
-
-
-// ─── SERVEUR HTTP (health check pour Render) ─────────────────────────────────
+// ─── SERVEUR HTTP + WebSocket (frontend React / Render) ──────────────────────
 const http = require('http');
+const { WebSocketServer } = require('ws');
+
 const HTTP_PORT = parseInt(process.env.PORT || '10000');
+const WS_PATH   = '/ws';
 
 const httpServer = http.createServer((req, res) => {
+  // CORS pour Vercel
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
   if (req.url === '/health' || req.url === '/') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-      status: 'online',
-      name: 'Elf&Démon : Éternal War — Game Server',
+      status : 'online',
+      name   : 'Elf&Démon : Éternal War — Game Server',
       players: players.size,
-      uptime: process.uptime(),
-      port: PORT,
+      uptime : process.uptime(),
+      tcp    : PORT,
+      ws     : `ws://<host>:${HTTP_PORT}${WS_PATH}`,
       opcodes: 1833,
     }));
   } else {
@@ -2904,8 +2897,68 @@ const httpServer = http.createServer((req, res) => {
   }
 });
 
-httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
-  console.log(`[HTTP] Health check sur port ${HTTP_PORT}`);
+const wss = new WebSocketServer({ server: httpServer, path: WS_PATH });
+
+wss.on('connection', (ws, req) => {
+  const id = nextId++;
+
+  // On crée un objet "socket" factice compatible avec sendTo / buildPacket
+  // sendTo fait player.socket.write(buffer) → on transforme en ws.send(buffer)
+  const fakeSocket = {
+    write: (buf) => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(buf);          // envoi binaire
+      }
+    },
+    remoteAddress: req.socket.remoteAddress,
+    remotePort:    req.socket.remotePort,
+  };
+
+  const player = {
+    id, socket: fakeSocket,
+    accountId: null, perso: null,
+    sceneId: null, x: 0, y: 0,
+    buffer: Buffer.alloc(0),
+    transport: 'ws',
+  };
+  players.set(id, player);
+  console.log(`[WS+]  Joueur #${id} — ${req.socket.remoteAddress}`);
+
+  sendTo(player, DEST.USER_INFO, OPCODES.UserInfoCmd.CONNECT_OK, { serverTime: Date.now() });
+
+  ws.on('message', (data, isBinary) => {
+    // Le frontend peut envoyer :
+    //   • Buffer binaire (protocole my9yu natif)
+    //   • Texte JSON  { dest, cmd, data }  (mode simplifié React)
+    if (!isBinary && typeof data === 'string') {
+      try {
+        const json = JSON.parse(data);
+        if (json.dest !== undefined && json.cmd !== undefined) {
+          routePacket(player, json.dest, json.cmd, json.data || {});
+        }
+      } catch(e) { console.warn(`[WS] JSON invalide #${id}`); }
+      return;
+    }
+    // Binaire → même pipeline que TCP
+    const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    processChunk(player, chunk);
+  });
+
+  ws.on('close', () => disconnectPlayer(id, player));
+  ws.on('error', err => console.error(`[WS ERR] #${id}: ${err.message}`));
 });
 
-module.exports = { server, httpServer, players, OPCODES, DEST };
+httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
+  console.log(`
+╔══════════════════════════════════════════════════════╗
+║     Elf&Démon : Éternal War — Game Server           ║
+║                                                      ║
+║  TCP  (Flash natif) : 0.0.0.0:${PORT}                  ║
+║  HTTP (health)      : 0.0.0.0:${HTTP_PORT}               ║
+║  WS   (React)       : ws://…:${HTTP_PORT}${WS_PATH}          ║
+║  Opcodes            : 1833 (148 classes AS3)         ║
+╚══════════════════════════════════════════════════════╝
+  `);
+});
+
+module.exports = { tcpServer, httpServer, wss, players, OPCODES, DEST };
