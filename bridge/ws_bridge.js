@@ -20,7 +20,7 @@ const WS_PORT        = parseInt(process.env.PORT)          || 9999;
 const TCP_HOST       = process.env.GAME_SERVER_HOST        || 'elf-demon-game-server.onrender.com';
 const TCP_PORT       = parseInt(process.env.GAME_SERVER_PORT) || 8888;
 const MAGIC          = 0x44524147; // "DRAG" en hex — à ajuster selon tes captures
-const HEADER_SIZE    = 20;         // 4+4+8+4+4
+const HEADER_SIZE    = 24;         // 4+4+8+4+4 = 24 bytes
 
 // ─── LOGS ──────────────────────────────────────────────────────────────────────
 const log  = (...a) => console.log ('[BRIDGE]', new Date().toISOString(), ...a);
@@ -173,7 +173,17 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// ─── STATS (optionnel, utile pour debug sur Render) ───────────────────────────
+// ─── KEEP-ALIVE game server (évite le sleep Render Free) ──────────────────────
+setInterval(() => {
+  const probe = new net.Socket();
+  probe.connect(TCP_PORT, TCP_HOST, () => {
+    log('Keep-alive TCP game server OK');
+    probe.destroy();
+  });
+  probe.on('error', () => probe.destroy());
+}, 840_000); // toutes les 14 min
+
+// ─── STATS (utile pour debug sur Render) ──────────────────────────────────────
 setInterval(() => {
   log(`Sessions actives : ${sessions.size}`);
 }, 60_000);
