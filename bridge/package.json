@@ -1,0 +1,15 @@
+{
+  "name": "elf-demon-ws-bridge",
+  "version": "1.0.0",
+  "description": "WebSocket ↔ TCP bridge for Elf&Démon : Éternal War",
+  "main": "ws_bridge.js",
+  "scripts": {
+    "start": "node ws_bridge.js"
+  },
+  "dependencies": {
+    "ws": "^8.17.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
