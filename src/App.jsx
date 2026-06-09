@@ -892,87 +892,298 @@ async function sauvegarder(compteId, champs) {
   await supabase.from("personnages").update(champs).eq("compte_id", compteId);
 }
 
+// ─── HOOK WEBSOCKET ───────────────────────────────────────────────────────────
+const WS_URL = "wss://elf-d-mon-ternal-war.onrender.com/ws";
+
+const DEST = { USER_INFO: 1, SCENE: 2, CHAT: 7 };
+const CMD  = {
+  ENTER_SCENE:       3,
+  LEFT_SCENE:        4,
+  MOVE:              2,
+  PUSH_MOVE:      1001,
+  PUSH_ENTER_SENCE:1002,
+  PUSH_LEFT_SENCE: 1003,
+  SEND_CHAT_MESSAGE: 1,
+  CHAT_PUSH:         2,
+  CONNECT_OK:     1097,
+};
+
+function useGameSocket(perso) {
+  const wsRef    = useRef(null);
+  const [autresJoueurs, setAutresJoueurs] = useState({});
+  const [chatMessages,  setChatMessages]  = useState([]);
+  const [connecte,      setConnecte]      = useState(false);
+
+  // Envoi JSON simplifié (mode React)
+  const envoyer = useCallback((dest, cmd, data = {}) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ dest, cmd, data }));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!perso) return;
+    const ws = new WebSocket(WS_URL);
+    ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setConnecte(true);
+      // Connexion au village
+      setTimeout(() => {
+        envoyer(DEST.USER_INFO, 1, {
+          accountId: perso.compte_id,
+          token: "react",
+        });
+        envoyer(DEST.SCENE, CMD.ENTER_SCENE, {
+          sceneId: "village",
+          x: Math.floor(Math.random() * 600) + 100,
+          y: Math.floor(Math.random() * 300) + 100,
+        });
+      }, 400);
+    };
+
+    ws.onmessage = (evt) => {
+      try {
+        let payload;
+        if (typeof evt.data === "string") {
+          payload = JSON.parse(evt.data);
+        } else {
+          // Paquet binaire du serveur → extraire le JSON après 24 octets d'entête
+          const buf = new Uint8Array(evt.data);
+          if (buf.length < 24) return;
+          const jsonStr = new TextDecoder().decode(buf.slice(24)).replace(/\0/g, "").trim();
+          if (!jsonStr.startsWith("{")) return;
+          const inner = JSON.parse(jsonStr);
+          payload = { dest: inner.dest ?? (buf[16]<<24|buf[17]<<16|buf[18]<<8|buf[19]),
+                      cmd:  inner.cmd  ?? (buf[20]<<24|buf[21]<<16|buf[22]<<8|buf[23]),
+                      ...inner };
+        }
+
+        const { dest, cmd, ok, players, playerId, nom, x, y, sender, emoji, message } = payload;
+
+        if (dest === DEST.SCENE) {
+          if (cmd === CMD.ENTER_SCENE && ok && players) {
+            // Liste initiale des joueurs présents
+            const map = {};
+            players.forEach(p => { map[p.id] = { nom: p.nom, x: p.x ?? 0, y: p.y ?? 0 }; });
+            setAutresJoueurs(map);
+          } else if (cmd === CMD.PUSH_ENTER_SENCE) {
+            setAutresJoueurs(prev => ({ ...prev, [playerId]: { nom, x: x ?? 0, y: y ?? 0 } }));
+          } else if (cmd === CMD.PUSH_LEFT_SENCE) {
+            setAutresJoueurs(prev => { const n = { ...prev }; delete n[playerId]; return n; });
+          } else if (cmd === CMD.PUSH_MOVE) {
+            setAutresJoueurs(prev => prev[playerId]
+              ? { ...prev, [playerId]: { ...prev[playerId], x: x ?? 0, y: y ?? 0 } }
+              : prev);
+          }
+        }
+
+        if (dest === DEST.CHAT && cmd === CMD.CHAT_PUSH) {
+          setChatMessages(prev => [...prev.slice(-49), { sender: sender || "?", emoji: emoji || "⚔️", message: message || "" }]);
+        }
+      } catch (_) { /* ignore */ }
+    };
+
+    ws.onerror = () => setConnecte(false);
+    ws.onclose = () => setConnecte(false);
+
+    return () => {
+      try { ws.send(JSON.stringify({ dest: DEST.SCENE, cmd: CMD.LEFT_SCENE, data: {} })); } catch (_) {}
+      ws.close();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perso?.compte_id]);
+
+  const deplacerVers = useCallback((x, y) => {
+    envoyer(DEST.SCENE, CMD.MOVE, { x, y });
+  }, [envoyer]);
+
+  const envoyerChat = useCallback((texte) => {
+    envoyer(DEST.CHAT, CMD.SEND_CHAT_MESSAGE, { message: texte, channel: 1 });
+  }, [envoyer]);
+
+  return { connecte, autresJoueurs, chatMessages, deplacerVers, envoyerChat };
+}
+
 // ─── PAGE VILLAGE ─────────────────────────────────────────────────────────────
 function PageVillage({ perso, setPerso, setNotif }) {
+  const { connecte, autresJoueurs, chatMessages, deplacerVers, envoyerChat } = useGameSocket(perso);
+  const [posJoueur, setPosJoueur] = useState({ x: 300, y: 200 });
+  const [texteChat, setTexteChat] = useState("");
+  const chatRef   = useRef(null);
+  const mapRef    = useRef(null);
+
+  // Garder le chat en bas
+  useEffect(() => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [chatMessages]);
+
+  // Clic sur la map → déplacer le personnage
+  const handleMapClick = useCallback((e) => {
+    const rect = mapRef.current.getBoundingClientRect();
+    const x = Math.round(e.clientX - rect.left);
+    const y = Math.round(e.clientY - rect.top);
+    setPosJoueur({ x, y });
+    deplacerVers(x, y);
+  }, [deplacerVers]);
+
+  const envoyerMessage = async () => {
+    if (!texteChat.trim()) return;
+    // Envoi WebSocket (temps réel) + Supabase (historique)
+    envoyerChat(texteChat.trim());
+    await supabase.from("chat_monde").insert({
+      nom_joueur: perso.nom,
+      classe_emoji: perso.classe_emoji || "⚔️",
+      message: texteChat.trim(),
+    });
+    setTexteChat("");
+  };
+
   const activites = [
-    { nom: "Arène PvP", icon: "⚔️", desc: "Affrontez d'autres joueurs", bonus: "+50 Gloire/victoire", action: async () => setNotif({ msg: "Recherche d'adversaire...", type: "info" }) },
-    { nom: "Quêtes Journalières", icon: "📜", desc: "3 quêtes disponibles", bonus: "+2 000 XP total", action: async () => { const nxp = Math.min(perso.xp_max, perso.xp + 200); await sauvegarder(perso.compte_id, { xp: nxp }); setPerso(p => ({ ...p, xp: nxp })); setNotif({ msg: "Quête terminée ! +200 XP", type: "succes" }); } },
-    { nom: "Entraînement", icon: "🏋️", desc: "Améliorez vos statistiques", bonus: "+Stats permanentes", action: async () => { const np = perso.puissance + 100; await sauvegarder(perso.compte_id, { puissance: np }); setPerso(p => ({ ...p, puissance: np })); setNotif({ msg: "Entraînement terminé ! +100 Puissance", type: "succes" }); } },
-    { nom: "Marché des Joueurs", icon: "🏪", desc: "Échangez avec les autres héros", bonus: "Vente & Achat libre", action: async () => setNotif({ msg: "Marché : 1 247 objets disponibles !", type: "info" }) },
-    { nom: "Temple des Fées", icon: "🧚", desc: "Invoquez vos compagnons", bonus: "Fée rare possible", action: async () => setNotif({ msg: "✨ Azura la Fée Crystaline vous rejoint !", type: "succes" }) },
-    { nom: "Ferme Céleste", icon: "🌾", desc: "Cultivez des ressources", bonus: "Ressources toutes 4h", action: async () => { const nor = perso.or_joueur + 500; await sauvegarder(perso.compte_id, { or_joueur: nor }); setPerso(p => ({ ...p, or_joueur: nor })); setNotif({ msg: "Récolte ! +500 Or", type: "succes" }); } },
+    { nom: "Arène PvP",           icon: "⚔️", desc: "Affrontez d'autres joueurs",    bonus: "+50 Gloire/victoire", action: async () => setNotif({ msg: "Recherche d'adversaire...", type: "info" }) },
+    { nom: "Quêtes Journalières", icon: "📜", desc: "3 quêtes disponibles",          bonus: "+2 000 XP total",     action: async () => { const nxp = Math.min(perso.xp_max, perso.xp + 200); await sauvegarder(perso.compte_id, { xp: nxp }); setPerso(p => ({ ...p, xp: nxp })); setNotif({ msg: "Quête terminée ! +200 XP", type: "succes" }); } },
+    { nom: "Entraînement",        icon: "🏋️", desc: "Améliorez vos statistiques",    bonus: "+Stats permanentes",  action: async () => { const np = perso.puissance + 100; await sauvegarder(perso.compte_id, { puissance: np }); setPerso(p => ({ ...p, puissance: np })); setNotif({ msg: "Entraînement terminé ! +100 Puissance", type: "succes" }); } },
+    { nom: "Marché des Joueurs",  icon: "🏪", desc: "Échangez avec les autres héros",bonus: "Vente & Achat libre",  action: async () => setNotif({ msg: "Marché : 1 247 objets disponibles !", type: "info" }) },
+    { nom: "Temple des Fées",     icon: "🧚", desc: "Invoquez vos compagnons",       bonus: "Fée rare possible",   action: async () => setNotif({ msg: "✨ Azura la Fée Crystaline vous rejoint !", type: "succes" }) },
+    { nom: "Ferme Céleste",       icon: "🌾", desc: "Cultivez des ressources",       bonus: "Ressources toutes 4h",action: async () => { const nor = perso.or_joueur + 500; await sauvegarder(perso.compte_id, { or_joueur: nor }); setPerso(p => ({ ...p, or_joueur: nor })); setNotif({ msg: "Récolte ! +500 Or", type: "succes" }); } },
   ];
+
+  const nbAutres = Object.keys(autresJoueurs).length;
 
   return (
     <div style={{ padding: 24 }}>
-      <h2 style={{ color: "#f39c12", margin: "0 0 4px", fontSize: 20 }}>🏘️ Village de Départ</h2>
-      <p style={{ color: "#8892b0", margin: "0 0 20px", fontSize: 13 }}>Bienvenue, <strong style={{ color: "#64ffda" }}>{perso.nom}</strong> ! Choisissez une activité.</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 20 }}>
-        {activites.map(a => (
-          <div key={a.nom} onClick={a.action} style={{ background: "#161b22", border: "1px solid #21262d", borderRadius: 12, padding: 18, cursor: "pointer", transition: "all 0.18s" }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = "#30363d"; e.currentTarget.style.transform = "translateY(-3px)"; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = "#21262d"; e.currentTarget.style.transform = "none"; }}>
-            <div style={{ fontSize: 32, marginBottom: 10 }}>{a.icon}</div>
-            <h3 style={{ color: "#e6edf3", margin: "0 0 5px", fontSize: 14, fontWeight: 600 }}>{a.nom}</h3>
-            <p style={{ color: "#8892b0", fontSize: 12, margin: "0 0 10px" }}>{a.desc}</p>
-            <span style={{ fontSize: 11, color: "#f39c12", background: "#f39c1211", padding: "3px 8px", borderRadius: 8, border: "1px solid #f39c1222" }}>{a.bonus}</span>
+      {/* En-tête + indicateur */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <h2 style={{ color: "#f39c12", margin: 0, fontSize: 20 }}>🏘️ Village de Départ</h2>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: connecte ? "#27ae60" : "#e74c3c" }} />
+          <span style={{ color: connecte ? "#27ae60" : "#e74c3c" }}>
+            {connecte ? `Connecté · ${nbAutres} joueur${nbAutres !== 1 ? "s" : ""} en ligne` : "Hors ligne"}
+          </span>
+        </div>
+      </div>
+      <p style={{ color: "#8892b0", margin: "0 0 16px", fontSize: 13 }}>
+        Bienvenue, <strong style={{ color: "#64ffda" }}>{perso.nom}</strong> ! Cliquez sur la carte pour vous déplacer.
+      </p>
+
+      {/* MAP VILLAGE TEMPS RÉEL */}
+      <div
+        ref={mapRef}
+        onClick={handleMapClick}
+        style={{
+          position: "relative",
+          width: "100%",
+          height: 280,
+          background: "linear-gradient(180deg, #0d2a1a 0%, #1a4a2a 60%, #0d1f0d 100%)",
+          borderRadius: 12,
+          border: "1px solid #21262d",
+          overflow: "hidden",
+          cursor: "crosshair",
+          marginBottom: 16,
+          userSelect: "none",
+        }}
+      >
+        {/* Décor statique */}
+        <div style={{ position: "absolute", left: 30, top: 20, fontSize: 28 }}>🏰</div>
+        <div style={{ position: "absolute", left: 200, top: 10, fontSize: 22 }}>⛪</div>
+        <div style={{ position: "absolute", right: 60, top: 15, fontSize: 26 }}>🌳</div>
+        <div style={{ position: "absolute", right: 120, bottom: 30, fontSize: 22 }}>🏪</div>
+        <div style={{ position: "absolute", left: 100, bottom: 20, fontSize: 20 }}>🌲</div>
+        <div style={{ position: "absolute", left: 50, bottom: 40, fontSize: 18 }}>⛩️</div>
+        <div style={{ position: "absolute", bottom: 8, left: 0, right: 0, height: 2, background: "#2d4a2d", opacity: 0.6 }} />
+
+        {/* Indication clic */}
+        <div style={{ position: "absolute", top: 8, right: 8, fontSize: 10, color: "#64ffda55", pointerEvents: "none" }}>
+          Clic = déplacer
+        </div>
+
+        {/* Autres joueurs */}
+        {Object.entries(autresJoueurs).map(([id, j]) => (
+          <div key={id} style={{
+            position: "absolute",
+            left: Math.min(Math.max(j.x - 16, 0), mapRef.current ? mapRef.current.offsetWidth - 32 : 700),
+            top:  Math.min(Math.max(j.y - 32, 0), 248),
+            transition: "left 0.4s ease, top 0.4s ease",
+            textAlign: "center",
+            pointerEvents: "none",
+          }}>
+            <div style={{ fontSize: 10, color: "#64ffda", marginBottom: 2, background: "#00000088", borderRadius: 4, padding: "1px 4px", whiteSpace: "nowrap" }}>
+              {j.nom || "Joueur"}
+            </div>
+            <div style={{ fontSize: 22 }}>👤</div>
           </div>
         ))}
+
+        {/* Mon personnage */}
+        <div style={{
+          position: "absolute",
+          left: posJoueur.x - 16,
+          top:  posJoueur.y - 32,
+          transition: "left 0.3s ease, top 0.3s ease",
+          textAlign: "center",
+          pointerEvents: "none",
+          zIndex: 10,
+        }}>
+          <div style={{ fontSize: 10, color: "#f39c12", marginBottom: 2, background: "#00000088", borderRadius: 4, padding: "1px 4px", whiteSpace: "nowrap" }}>
+            {perso.nom} ⭐
+          </div>
+          <div style={{ fontSize: 22 }}>{perso.classe_emoji || "⚔️"}</div>
+        </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <div style={{ background: "#161b22", border: "1px solid #21262d", borderRadius: 12, padding: 18 }}>
-          <h3 style={{ color: "#e6edf3", margin: "0 0 12px", fontSize: 14 }}>📢 Annonces</h3>
-          {["🎉 Nouveau donjon 'Palais Céleste' disponible !", "⚔️ Tournoi inter-guildes vendredi 20h", "🎁 Double XP ce week-end !", "🐉 Boss mondial 'Drakon' apparu Zone Nord"].map((a, i) => (
-            <div key={i} style={{ padding: "7px 0", borderBottom: i < 3 ? "1px solid #21262d" : "none", color: "#8892b0", fontSize: 12 }}>{a}</div>
+
+      {/* Grille activités + chat */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 16, marginBottom: 16 }}>
+        {/* Activités */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+          {activites.map(a => (
+            <div key={a.nom} onClick={a.action}
+              style={{ background: "#161b22", border: "1px solid #21262d", borderRadius: 10, padding: 14, cursor: "pointer", transition: "all 0.18s" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "#30363d"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "#21262d"; e.currentTarget.style.transform = "none"; }}>
+              <div style={{ fontSize: 24, marginBottom: 6 }}>{a.icon}</div>
+              <h3 style={{ color: "#e6edf3", margin: "0 0 3px", fontSize: 12, fontWeight: 600 }}>{a.nom}</h3>
+              <p style={{ color: "#8892b0", fontSize: 11, margin: "0 0 6px" }}>{a.desc}</p>
+              <span style={{ fontSize: 10, color: "#f39c12", background: "#f39c1211", padding: "2px 6px", borderRadius: 6, border: "1px solid #f39c1222" }}>{a.bonus}</span>
+            </div>
           ))}
         </div>
-        <div style={{ background: "#161b22", border: "1px solid #21262d", borderRadius: 12, padding: 18 }}>
-          <h3 style={{ color: "#e6edf3", margin: "0 0 12px", fontSize: 14 }}>💬 Chat Monde</h3>
-          <ChatMonde perso={perso} />
+
+        {/* Chat WebSocket */}
+        <div style={{ background: "#161b22", border: "1px solid #21262d", borderRadius: 12, padding: 16, display: "flex", flexDirection: "column" }}>
+          <h3 style={{ color: "#e6edf3", margin: "0 0 10px", fontSize: 13 }}>💬 Chat Monde {connecte && <span style={{ color: "#27ae60", fontSize: 11 }}>• live</span>}</h3>
+          <div ref={chatRef} style={{ flex: 1, overflowY: "auto", minHeight: 160, maxHeight: 200, marginBottom: 8 }}>
+            {chatMessages.length === 0 && (
+              <p style={{ color: "#8892b0", fontSize: 11, textAlign: "center", marginTop: 30 }}>Aucun message</p>
+            )}
+            {chatMessages.map((m, i) => (
+              <div key={i} style={{ fontSize: 11, marginBottom: 3 }}>
+                <span style={{ color: "#f39c12" }}>{m.emoji} {m.sender}</span>
+                <span style={{ color: "#8892b0" }}> : {m.message}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              value={texteChat}
+              onChange={e => setTexteChat(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && envoyerMessage()}
+              placeholder="Message..."
+              style={{ flex: 1, padding: "6px 10px", borderRadius: 7, border: "1px solid #30363d", background: "#0d1117", color: "#e6edf3", fontSize: 12, outline: "none" }}
+            />
+            <button onClick={envoyerMessage} style={{ padding: "6px 12px", borderRadius: 7, border: "none", background: "#f39c12", color: "#000", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>↵</button>
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
 
-// ─── CHAT MONDE ───────────────────────────────────────────────────────────────
-function ChatMonde({ perso }) {
-  const [messages, setMessages] = useState([]);
-  const [texte, setTexte] = useState("");
-  const chatRef = useRef(null);
-
-  useEffect(() => {
-    supabase.from("chat_monde").select("*").order("created_at", { ascending: false }).limit(30)
-      .then(({ data }) => { if (data) setMessages(data.reverse()); });
-    const channel = supabase.channel("chat_monde_realtime")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_monde" },
-        payload => setMessages(prev => [...prev.slice(-29), payload.new]))
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, []);
-
-  useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [messages]);
-
-  const envoyer = async () => {
-    if (!texte.trim()) return;
-    await supabase.from("chat_monde").insert({ nom_joueur: perso.nom, classe_emoji: perso.classe_emoji || "⚔️", message: texte.trim() });
-    setTexte("");
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: 200 }}>
-      <div ref={chatRef} style={{ flex: 1, overflowY: "auto", marginBottom: 8 }}>
-        {messages.length === 0 && <p style={{ color: "#8892b0", fontSize: 12, textAlign: "center" }}>Aucun message — soyez le premier !</p>}
-        {messages.map((m, i) => (
-          <div key={i} style={{ fontSize: 12, marginBottom: 4 }}>
-            <span style={{ color: "#f39c12" }}>{m.classe_emoji} {m.nom_joueur}</span>
-            <span style={{ color: "#8892b0" }}> : {m.message}</span>
-          </div>
-        ))}
-      </div>
-      <div style={{ display: "flex", gap: 6 }}>
-        <input value={texte} onChange={e => setTexte(e.target.value)} onKeyDown={e => e.key === "Enter" && envoyer()} placeholder="Message..." style={{ flex: 1, padding: "7px 10px", borderRadius: 7, border: "1px solid #30363d", background: "#0d1117", color: "#e6edf3", fontSize: 12, outline: "none" }} />
-        <button onClick={envoyer} style={{ padding: "7px 12px", borderRadius: 7, border: "none", background: "#f39c12", color: "#000", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>↵</button>
+      {/* Annonces */}
+      <div style={{ background: "#161b22", border: "1px solid #21262d", borderRadius: 12, padding: 16 }}>
+        <h3 style={{ color: "#e6edf3", margin: "0 0 10px", fontSize: 13 }}>📢 Annonces</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
+          {["🎉 Nouveau donjon 'Palais Céleste' disponible !", "⚔️ Tournoi inter-guildes vendredi 20h", "🎁 Double XP ce week-end !", "🐉 Boss mondial 'Drakon' apparu Zone Nord"].map((a, i) => (
+            <div key={i} style={{ padding: "6px 10px", background: "#0d1117", borderRadius: 8, color: "#8892b0", fontSize: 12 }}>{a}</div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -1344,4 +1555,3 @@ export default function App() {
     </div>
   );
 }
-Terminé
